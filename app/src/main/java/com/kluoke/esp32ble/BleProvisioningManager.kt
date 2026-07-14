@@ -6,7 +6,6 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
-import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.os.Build
 import android.os.Handler
@@ -42,23 +41,17 @@ class BleProvisioningManager(
 
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val adapter = context.getSystemService(BluetoothManager::class.java).adapter
     private var gatt: BluetoothGatt? = null
     private var pendingPassword: String? = null
     private var servicesDiscovered = false
     private val enabledNotifications = mutableSetOf<UUID>()
 
-    fun bluetoothAvailable(): Boolean = adapter != null && adapter.isEnabled
-
     @SuppressLint("MissingPermission")
     fun connect(device: BluetoothDevice) {
         close()
         listener.onStatusChanged("正在连接 ${device.name ?: device.address}")
-        gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            device.connectGatt(appContext, false, callback, BluetoothDevice.TRANSPORT_LE)
-        } else {
-            device.connectGatt(appContext, false, callback)
-        }
+        @Suppress("DEPRECATION")
+        gatt = device.connectGatt(appContext, false, callback, BluetoothDevice.TRANSPORT_LE)
     }
 
     @SuppressLint("MissingPermission")
@@ -90,10 +83,15 @@ class BleProvisioningManager(
 
     @SuppressLint("MissingPermission")
     private fun write(characteristic: BluetoothGattCharacteristic, value: ByteArray) {
-        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-        characteristic.value = value
-        if (gatt?.writeCharacteristic(characteristic) != true) {
-            listener.onError("写入 BLE 特征失败")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            gatt?.writeCharacteristic(characteristic, value, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+        } else {
+            @Suppress("DEPRECATION")
+            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            @Suppress("DEPRECATION")
+            characteristic.value = value
+            @Suppress("DEPRECATION")
+            gatt?.writeCharacteristic(characteristic)
         }
     }
 
@@ -111,11 +109,19 @@ class BleProvisioningManager(
         }
         val descriptor = characteristic.getDescriptor(CCCD_UUID)
             ?: return listener.onError("通知描述符不存在")
-        descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-        if (!gatt!!.writeDescriptor(descriptor)) listener.onError("写入通知描述符失败")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            gatt!!.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+        } else {
+            @Suppress("DEPRECATION")
+            descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            @Suppress("DEPRECATION")
+            gatt!!.writeDescriptor(descriptor)
+        }
     }
 
-    private fun post(block: () -> Unit) = mainHandler.post(block)
+    private fun post(block: () -> Unit) {
+        mainHandler.post(block)
+    }
 
     private val callback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
@@ -176,11 +182,25 @@ class BleProvisioningManager(
             }
         }
 
+        @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+            @Suppress("DEPRECATION")
             val value = characteristic.value?.toString(StandardCharsets.UTF_8).orEmpty()
             when (characteristic.uuid) {
                 SCAN_RESULT_UUID -> parseAccessPoint(value)?.let { ap -> post { listener.onWifiApReceived(ap) } }
                 STATUS_UUID -> post { listener.onStatusChanged(displayStatus(value)) }
+            }
+        }
+
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray
+        ) {
+            val stringValue = value.toString(StandardCharsets.UTF_8)
+            when (characteristic.uuid) {
+                SCAN_RESULT_UUID -> parseAccessPoint(stringValue)?.let { ap -> post { listener.onWifiApReceived(ap) } }
+                STATUS_UUID -> post { listener.onStatusChanged(displayStatus(stringValue)) }
             }
         }
     }
