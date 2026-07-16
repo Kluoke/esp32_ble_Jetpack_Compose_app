@@ -1,7 +1,6 @@
 package com.kluoke.esp32ble
 
 import android.app.Application
-import android.bluetooth.le.ScanResult
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
@@ -103,7 +102,7 @@ class ProvisioningViewModel(application: Application) : AndroidViewModel(applica
     fun startScanAndConnect() {
         scanJob?.cancel()
         _uiState.value = _uiState.value.copy(isScanning = true)
-        bleManager.connectionState.value = BleConnectionState.Scanning(BleProvisioningManager.DEVICE_NAME)
+        bleManager.setConnectionState(BleConnectionState.Scanning(BleProvisioningManager.DEVICE_NAME))
 
         scanJob = viewModelScope.launch {
             bleScanner.scanForDevice(BleProvisioningManager.DEVICE_NAME)

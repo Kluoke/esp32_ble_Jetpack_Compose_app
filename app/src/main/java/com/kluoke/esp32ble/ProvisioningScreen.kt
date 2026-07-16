@@ -3,6 +3,7 @@ package com.kluoke.esp32ble
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -141,7 +142,7 @@ fun ProvisioningContent(
  * Wi-Fi 列表组件
  */
 @Composable
-private fun WifiList(
+private fun ColumnScope.WifiList(
     aps: List<WifiAp>,
     onApClick: (String) -> Unit
 ) {
