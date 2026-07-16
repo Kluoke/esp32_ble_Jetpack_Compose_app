@@ -8,24 +8,44 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.content.Context
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.launch
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 
+/**
+ * Wi-Fi 热点数据模型
+ */
 data class WifiAp(val ssid: String, val rssi: Int, val authMode: Int)
 
-interface BleProvisioningListener {
-    fun onStatusChanged(status: String)
-    fun onWifiApReceived(accessPoint: WifiAp)
-    fun onReady()
-    fun onError(message: String)
+/**
+ * BLE 配网连接状态
+ */
+sealed interface BleConnectionState {
+    data object Idle : BleConnectionState
+    data class Scanning(val target: String) : BleConnectionState
+    data class Connecting(val deviceName: String) : BleConnectionState
+    data class NegotiatingMtu(val deviceName: String) : BleConnectionState
+    data class Subscribing(val deviceName: String) : BleConnectionState
+    data class Connected(val deviceName: String) : BleConnectionState
+    data class Disconnected : BleConnectionState
+    data class Error(val message: String) : BleConnectionState
 }
 
-class BleProvisioningManager(
-    context: Context,
-    private val listener: BleProvisioningListener
-) {
+/**
+ * ESP32 BLE 配网管理器
+ *
+ * 使用 callbackFlow 将 BLE 回调转换为 Flow，
+ * 消除 Handler/Listener 模式，便于与 ViewModel/Coroutines 集成。
+ */
+class BleProvisioningManager(context: Context) {
+
     companion object {
         const val DEVICE_NAME = "ESP32_BLE_DEVICE"
         private val SERVICE_UUID = UUID.fromString("12345678-1234-5678-1234-56789abcdef0")
@@ -40,16 +60,56 @@ class BleProvisioningManager(
     }
 
     private val appContext = context.applicationContext
-    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** 连接状态 */
+    private val _connectionState = MutableStateFlow<BleConnectionState>(BleConnectionState.Idle)
+    val connectionState: StateFlow<BleConnectionState> = _connectionState.asStateFlow()
+
     private var gatt: BluetoothGatt? = null
     private var pendingPassword: String? = null
     private var servicesDiscovered = false
     private val enabledNotifications = mutableSetOf<UUID>()
 
+    /**
+     * Wi-Fi 扫描结果流
+     */
+    fun wifiApFlow(): Flow<WifiAp> = callbackFlow {
+        val listener = object : BleRawListener {
+            override fun onWifiApReceived(ap: WifiAp) {
+                trySend(ap)
+            }
+        }
+        rawListeners.add(listener)
+        awaitClose { rawListeners.remove(listener) }
+    }.conflate()
+
+    /**
+     * 设备状态消息流
+     */
+    fun statusFlow(): Flow<String> = callbackFlow {
+        val listener = object : BleRawListener {
+            override fun onStatusChanged(status: String) {
+                trySend(status)
+            }
+        }
+        rawListeners.add(listener)
+        awaitClose { rawListeners.remove(listener) }
+    }.conflate()
+
+    // 内部原始监听器集合，供 GattCallback 分发
+    private val rawListeners = mutableSetOf<BleRawListener>()
+
+    private interface BleRawListener {
+        fun onWifiApReceived(ap: WifiAp) {}
+        fun onStatusChanged(status: String) {}
+    }
+
+    // ==================== 公开 API ====================
+
     @SuppressLint("MissingPermission")
     fun connect(device: BluetoothDevice) {
         close()
-        listener.onStatusChanged("正在连接 ${device.name ?: device.address}")
+        _connectionState.value = BleConnectionState.Connecting(device.name ?: device.address)
         @Suppress("DEPRECATION")
         gatt = device.connectGatt(appContext, false, callback, BluetoothDevice.TRANSPORT_LE)
     }
@@ -57,18 +117,20 @@ class BleProvisioningManager(
     @SuppressLint("MissingPermission")
     fun scanWifi() {
         val characteristic = serviceCharacteristic(SCAN_UUID)
-            ?: return listener.onError("设备未准备好")
+            ?: return updateError("设备未准备好")
         write(characteristic, "SCAN".toByteArray(StandardCharsets.UTF_8))
     }
 
     @SuppressLint("MissingPermission")
     fun provision(ssid: String, password: String) {
-        if (ssid.isBlank()) return listener.onError("请选择或输入 Wi-Fi 名称")
-        if (password.isBlank()) return listener.onError("请输入 Wi-Fi 密码")
+        if (ssid.isBlank()) return updateError("请选择或输入 Wi-Fi 名称")
+        if (password.isBlank()) return updateError("请输入 Wi-Fi 密码")
         val characteristic = serviceCharacteristic(SSID_UUID)
-            ?: return listener.onError("设备未准备好")
+            ?: return updateError("设备未准备好")
         pendingPassword = password
-        listener.onStatusChanged("正在发送 Wi-Fi 名称")
+        _connectionState.value = BleConnectionState.Connected(
+            (_connectionState.value as? BleConnectionState.Connected)?.deviceName ?: "设备"
+        )
         write(characteristic, ssid.toByteArray(StandardCharsets.UTF_8))
     }
 
@@ -79,7 +141,13 @@ class BleProvisioningManager(
         gatt = null
         servicesDiscovered = false
         enabledNotifications.clear()
+        pendingPassword = null
+        _connectionState.value = BleConnectionState.Disconnected
     }
+
+    val isReady: Boolean get() = servicesDiscovered && enabledNotifications.size >= 2
+
+    // ==================== 内部实现 ====================
 
     @SuppressLint("MissingPermission")
     private fun write(characteristic: BluetoothGattCharacteristic, value: ByteArray) {
@@ -101,14 +169,14 @@ class BleProvisioningManager(
     @SuppressLint("MissingPermission")
     private fun enableNextNotification() {
         val next = listOf(SCAN_RESULT_UUID, STATUS_UUID).firstOrNull { it !in enabledNotifications }
-            ?: return listener.onReady()
+            ?: return onReady()
         val characteristic = serviceCharacteristic(next)
-            ?: return listener.onError("缺少通知特征 $next")
+            ?: return updateError("缺少通知特征 $next")
         if (!gatt!!.setCharacteristicNotification(characteristic, true)) {
-            return listener.onError("无法启用通知")
+            return updateError("无法启用通知")
         }
         val descriptor = characteristic.getDescriptor(CCCD_UUID)
-            ?: return listener.onError("通知描述符不存在")
+            ?: return updateError("通知描述符不存在")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             gatt!!.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
         } else {
@@ -119,23 +187,32 @@ class BleProvisioningManager(
         }
     }
 
-    private fun post(block: () -> Unit) {
-        mainHandler.post(block)
+    private fun onReady() {
+        val name = (_connectionState.value as? BleConnectionState.NegotiatingMtu)?.deviceName ?: "设备"
+        _connectionState.value = BleConnectionState.Connected(name)
+    }
+
+    private fun updateError(message: String) {
+        _connectionState.value = BleConnectionState.Error(message)
     }
 
     private val callback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                post { listener.onError("连接失败，错误码 $status") }
+                updateError("连接失败，错误码 $status")
                 return
             }
-            if (newState == BluetoothGatt.STATE_CONNECTED) {
-                post { listener.onStatusChanged("已连接，协商传输大小") }
-                if (!gatt.requestMtu(128)) gatt.discoverServices()
-            } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
-                servicesDiscovered = false
-                post { listener.onStatusChanged("设备已断开") }
+            when (newState) {
+                BluetoothGatt.STATE_CONNECTED -> {
+                    val name = gatt.device.name ?: gatt.device.address
+                    _connectionState.value = BleConnectionState.NegotiatingMtu(name)
+                    if (!gatt.requestMtu(128)) gatt.discoverServices()
+                }
+                BluetoothGatt.STATE_DISCONNECTED -> {
+                    servicesDiscovered = false
+                    _connectionState.value = BleConnectionState.Disconnected
+                }
             }
         }
 
@@ -146,18 +223,23 @@ class BleProvisioningManager(
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS || gatt.getService(SERVICE_UUID) == null) {
-                post { listener.onError("未发现 ESP32 配网服务；请确认固件已更新") }
+                updateError("未发现 ESP32 配网服务；请确认固件已更新")
                 return
             }
             servicesDiscovered = true
-            post { listener.onStatusChanged("正在订阅设备通知") }
+            val name = gatt.device.name ?: gatt.device.address
+            _connectionState.value = BleConnectionState.Subscribing(name)
             enableNextNotification()
         }
 
         @SuppressLint("MissingPermission")
-        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+        override fun onDescriptorWrite(
+            gatt: BluetoothGatt,
+            descriptor: BluetoothGattDescriptor,
+            status: Int
+        ) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                post { listener.onError("订阅通知失败，错误码 $status") }
+                updateError("订阅通知失败，错误码 $status")
                 return
             }
             enabledNotifications += descriptor.characteristic.uuid
@@ -165,31 +247,32 @@ class BleProvisioningManager(
         }
 
         @SuppressLint("MissingPermission")
-        override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                post { listener.onError("写入失败，错误码 $status") }
+                updateError("写入失败，错误码 $status")
                 return
             }
             if (characteristic.uuid == SSID_UUID) {
                 val password = pendingPassword ?: return
                 pendingPassword = null
                 val passwordCharacteristic = serviceCharacteristic(PASSWORD_UUID)
-                    ?: return post { listener.onError("缺少密码特征") }
-                post { listener.onStatusChanged("正在发送 Wi-Fi 密码") }
+                    ?: return updateError("缺少密码特征")
                 write(passwordCharacteristic, password.toByteArray(StandardCharsets.UTF_8))
-            } else if (characteristic.uuid == PASSWORD_UUID) {
-                post { listener.onStatusChanged("凭据已发送，等待设备连接") }
             }
         }
 
         @Deprecated("Deprecated in Java")
-        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic
+        ) {
             @Suppress("DEPRECATION")
             val value = characteristic.value?.toString(StandardCharsets.UTF_8).orEmpty()
-            when (characteristic.uuid) {
-                SCAN_RESULT_UUID -> parseAccessPoint(value)?.let { ap -> post { listener.onWifiApReceived(ap) } }
-                STATUS_UUID -> post { listener.onStatusChanged(displayStatus(value)) }
-            }
+            handleCharacteristicChanged(characteristic.uuid, value)
         }
 
         override fun onCharacteristicChanged(
@@ -198,9 +281,18 @@ class BleProvisioningManager(
             value: ByteArray
         ) {
             val stringValue = value.toString(StandardCharsets.UTF_8)
-            when (characteristic.uuid) {
-                SCAN_RESULT_UUID -> parseAccessPoint(stringValue)?.let { ap -> post { listener.onWifiApReceived(ap) } }
-                STATUS_UUID -> post { listener.onStatusChanged(displayStatus(stringValue)) }
+            handleCharacteristicChanged(characteristic.uuid, stringValue)
+        }
+    }
+
+    private fun handleCharacteristicChanged(uuid: UUID, value: String) {
+        when (uuid) {
+            SCAN_RESULT_UUID -> parseAccessPoint(value)?.let { ap ->
+                rawListeners.forEach { it.onWifiApReceived(ap) }
+            }
+            STATUS_UUID -> {
+                val display = displayStatus(value)
+                rawListeners.forEach { it.onStatusChanged(display) }
             }
         }
     }
