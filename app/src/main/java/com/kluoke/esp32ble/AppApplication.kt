@@ -1,6 +1,7 @@
 package com.kluoke.esp32ble
 
 import android.app.Application
+import android.content.Context
 
 /**
  * 自定义 Application

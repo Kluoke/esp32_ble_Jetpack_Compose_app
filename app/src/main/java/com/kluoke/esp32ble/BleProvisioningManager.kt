@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
-import kotlinx.coroutines.launch
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 
@@ -34,7 +33,7 @@ sealed interface BleConnectionState {
     data class NegotiatingMtu(val deviceName: String) : BleConnectionState
     data class Subscribing(val deviceName: String) : BleConnectionState
     data class Connected(val deviceName: String) : BleConnectionState
-    data class Disconnected : BleConnectionState
+    data object Disconnected : BleConnectionState
     data class Error(val message: String) : BleConnectionState
 }
 
@@ -64,6 +63,11 @@ class BleProvisioningManager(context: Context) {
     /** 连接状态 */
     private val _connectionState = MutableStateFlow<BleConnectionState>(BleConnectionState.Idle)
     val connectionState: StateFlow<BleConnectionState> = _connectionState.asStateFlow()
+
+    /** 更新连接状态 */
+    fun setConnectionState(state: BleConnectionState) {
+        _connectionState.value = state
+    }
 
     private var gatt: BluetoothGatt? = null
     private var pendingPassword: String? = null
@@ -145,8 +149,6 @@ class BleProvisioningManager(context: Context) {
         _connectionState.value = BleConnectionState.Disconnected
     }
 
-    val isReady: Boolean get() = servicesDiscovered && enabledNotifications.size >= 2
-
     // ==================== 内部实现 ====================
 
     @SuppressLint("MissingPermission")
@@ -221,6 +223,7 @@ class BleProvisioningManager(context: Context) {
             gatt.discoverServices()
         }
 
+        @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS || gatt.getService(SERVICE_UUID) == null) {
                 updateError("未发现 ESP32 配网服务；请确认固件已更新")
@@ -266,6 +269,7 @@ class BleProvisioningManager(context: Context) {
         }
 
         @Deprecated("Deprecated in Java")
+        @SuppressLint("MissingPermission")
         override fun onCharacteristicChanged(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic
@@ -275,6 +279,7 @@ class BleProvisioningManager(context: Context) {
             handleCharacteristicChanged(characteristic.uuid, value)
         }
 
+        @SuppressLint("MissingPermission")
         override fun onCharacteristicChanged(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
