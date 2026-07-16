@@ -37,7 +37,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                ProvisioningScreen(viewModel = viewModel)
+                ProvisioningScreen(
+                    viewModel = viewModel,
+                    onScanClick = ::checkPermissionsAndScan
+                )
             }
         }
     }
@@ -45,7 +48,7 @@ class MainActivity : ComponentActivity() {
     /**
      * 检查权限并启动扫描
      */
-    fun checkPermissionsAndScan() {
+    private fun checkPermissionsAndScan() {
         viewModel.updateStatus("正在检查权限...")
         val request = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)

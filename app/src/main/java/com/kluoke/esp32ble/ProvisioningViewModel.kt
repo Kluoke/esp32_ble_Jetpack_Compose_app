@@ -4,12 +4,10 @@ import android.app.Application
 import android.bluetooth.le.ScanResult
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -38,6 +36,8 @@ class ProvisioningViewModel(application: Application) : AndroidViewModel(applica
 
     private val _uiState = MutableStateFlow(ProvisioningUiState())
     val uiState: StateFlow<ProvisioningUiState> = _uiState.asStateFlow()
+
+    private var scanJob: Job? = null
 
     init {
         // 收集 BLE 连接状态
@@ -98,22 +98,20 @@ class ProvisioningViewModel(application: Application) : AndroidViewModel(applica
     // ==================== 用户操作 ====================
 
     /**
-     * 开始扫描并连接 ESP32 设备
+     * 检查权限后由 Activity 调用，启动 BLE 扫描
      */
     fun startScanAndConnect() {
-        _uiState.value = _uiState.value.copy(
-            statusText = "正在检查权限...",
-            isScanning = true
-        )
-        viewModelScope.launch {
+        scanJob?.cancel()
+        _uiState.value = _uiState.value.copy(isScanning = true)
+        bleManager.connectionState.value = BleConnectionState.Scanning(BleProvisioningManager.DEVICE_NAME)
+
+        scanJob = viewModelScope.launch {
             bleScanner.scanForDevice(BleProvisioningManager.DEVICE_NAME)
                 .collect { result ->
-                    bleManager.connectionState.value = BleConnectionState.Connecting(
-                        result.device.name ?: result.device.address
-                    )
                     bleManager.connect(result.device)
                     return@collect // 找到第一个匹配设备即停止
                 }
+            _uiState.value = _uiState.value.copy(isScanning = false)
         }
     }
 
@@ -142,8 +140,16 @@ class ProvisioningViewModel(application: Application) : AndroidViewModel(applica
         _uiState.value = _uiState.value.copy(password = password)
     }
 
+    /**
+     * 更新状态文本（供权限拒绝等外部事件使用）
+     */
+    fun updateStatus(message: String) {
+        _uiState.value = _uiState.value.copy(statusText = message)
+    }
+
     override fun onCleared() {
         super.onCleared()
+        scanJob?.cancel()
         bleManager.close()
     }
 }

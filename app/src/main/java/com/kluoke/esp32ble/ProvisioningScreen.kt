@@ -32,7 +32,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  */
 @Composable
 fun ProvisioningScreen(
-    viewModel: ProvisioningViewModel
+    viewModel: ProvisioningViewModel,
+    onScanClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -45,7 +46,7 @@ fun ProvisioningScreen(
         isDeviceReady = uiState.isDeviceReady,
         onSsidChange = viewModel::updateSsid,
         onPasswordChange = viewModel::updatePassword,
-        onScanClick = viewModel::startScanAndConnect,
+        onScanClick = onScanClick,
         onGetWifiClick = viewModel::scanWifi,
         onProvisionClick = viewModel::provision
     )
