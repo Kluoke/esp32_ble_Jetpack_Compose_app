@@ -5,16 +5,20 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 
 /**
  * 主 Activity
  *
  * 职责精简为：
- * 1. 权限请求
- * 2. 创建 ViewModel 并驱动 Compose UI
+ * 1. 启用 Edge-to-Edge 显示
+ * 2. 权限请求
+ * 3. 创建 ViewModel 并驱动 Compose UI
  *
  * 所有业务逻辑和 UI 状态由 ProvisioningViewModel 管理，
  * UI 渲染由 ProvisioningScreen 负责。
@@ -43,7 +47,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
+        // 使用 enableEdgeToEdge 替代已废弃的 window.statusBarColor/navigationBarColor
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.dark(
+                scrim = Color(0xFF0D1B2A).toArgb(),
+            ),
+            navigationBarStyle = androidx.activity.SystemBarStyle.dark(
+                scrim = Color(0xFF0D1B2A).toArgb(),
+            )
+        )
+
         // 启动时静默请求通知权限 (Android 13+)
         requestNotificationPermission()
 

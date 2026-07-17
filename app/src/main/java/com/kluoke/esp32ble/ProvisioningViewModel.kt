@@ -18,7 +18,8 @@ data class ProvisioningUiState(
     val ssid: String = "",
     val password: String = "",
     val isScanning: Boolean = false,
-    val isDeviceReady: Boolean = false
+    val isDeviceReady: Boolean = false,
+    val connectionState: BleConnectionState = BleConnectionState.Idle
 )
 
 /**
@@ -43,32 +44,42 @@ class ProvisioningViewModel(application: Application) : AndroidViewModel(applica
         viewModelScope.launch {
             bleManager.connectionState.collect { state ->
                 _uiState.value = when (state) {
-                    is BleConnectionState.Idle -> _uiState.value.copy(statusText = "请连接 ESP32")
+                    is BleConnectionState.Idle -> _uiState.value.copy(
+                        statusText = "请连接 ESP32",
+                        connectionState = state
+                    )
                     is BleConnectionState.Scanning -> _uiState.value.copy(
                         statusText = "正在扫描 ${state.target}...",
-                        isScanning = true
+                        isScanning = true,
+                        connectionState = state
                     )
                     is BleConnectionState.Connecting -> _uiState.value.copy(
                         statusText = "找到设备: ${state.deviceName}，正在连接...",
-                        isScanning = false
+                        isScanning = false,
+                        connectionState = state
                     )
                     is BleConnectionState.NegotiatingMtu -> _uiState.value.copy(
-                        statusText = "已连接，协商传输大小..."
+                        statusText = "已连接，协商传输大小...",
+                        connectionState = state
                     )
                     is BleConnectionState.Subscribing -> _uiState.value.copy(
-                        statusText = "正在订阅设备通知..."
+                        statusText = "正在订阅设备通知...",
+                        connectionState = state
                     )
                     is BleConnectionState.Connected -> _uiState.value.copy(
                         statusText = "设备已准备好",
-                        isDeviceReady = true
+                        isDeviceReady = true,
+                        connectionState = state
                     )
                     is BleConnectionState.Disconnected -> _uiState.value.copy(
                         statusText = "设备已断开",
-                        isDeviceReady = false
+                        isDeviceReady = false,
+                        connectionState = state
                     )
                     is BleConnectionState.Error -> _uiState.value.copy(
                         statusText = state.message,
-                        isDeviceReady = false
+                        isDeviceReady = false,
+                        connectionState = state
                     )
                 }
             }
