@@ -4,16 +4,15 @@ import android.util.Log
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
+/**
+ * FCM 消息推送服务
+ *
+ * 接收来自服务端的消息通知。
+ *
+ * 注意：onNewToken() 已被 Firebase 废弃（FCM 正迁移到 Installation IDs），
+ * 如需获取 Token，请使用 FirebaseInstallations.getInstance().getToken()。
+ */
 class MyFirebaseMessagingService : FirebaseMessagingService() {
-
-    
-    @Deprecated("Overrides a deprecated member in FirebaseMessagingService")
-    @Suppress("DEPRECATION")
-    override fun onNewToken(token: String) {
-        super.onNewToken(token)
-        Log.d(TAG, "Refreshed token: $token")
-        // TODO: 将 Token 发送到您的后台服务器
-    }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
@@ -27,6 +26,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         // 检查消息是否包含通知
         remoteMessage.notification?.let {
             Log.d(TAG, "Message Notification Body: ${it.body}")
+            // TODO: 构建并显示通知栏通知 (NotificationCompat)
         }
     }
 
