@@ -23,18 +23,30 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: ProvisioningViewModel by viewModels()
 
-    private val permissions = registerForActivityResult(
+    // 专门用于扫描相关权限的启动器（成功后会触发扫描）
+    private val blePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
         if (results.values.all { it }) {
             viewModel.startScanAndConnect()
         } else {
-            viewModel.updateStatus("需要蓝牙权限")
+            viewModel.updateStatus("部分权限未被允许，无法扫描设备")
         }
+    }
+
+    // 专门用于通知权限的启动器（不触发业务逻辑）
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        // 仅请求，不触发自动扫描
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // 启动时静默请求通知权限 (Android 13+)
+        requestNotificationPermission()
+
         setContent {
             MaterialTheme {
                 ProvisioningScreen(
@@ -55,6 +67,15 @@ class MainActivity : ComponentActivity() {
         } else {
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         }
-        permissions.launch(request)
+        blePermissionLauncher.launch(request)
+    }
+
+    /**
+     * 请求通知权限 (Android 13+)
+     */
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+        }
     }
 }
