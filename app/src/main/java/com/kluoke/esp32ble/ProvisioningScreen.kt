@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
@@ -82,7 +83,8 @@ private val SubtleGray = Color(0xFF8899AA)
 @Composable
 fun ProvisioningScreen(
     viewModel: ProvisioningViewModel,
-    onScanClick: () -> Unit
+    onScanClick: () -> Unit,
+    onOtaClick: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -98,7 +100,8 @@ fun ProvisioningScreen(
         onPasswordChange = viewModel::updatePassword,
         onScanClick = onScanClick,
         onGetWifiClick = viewModel::scanWifi,
-        onProvisionClick = viewModel::provision
+        onProvisionClick = viewModel::provision,
+        onOtaClick = onOtaClick
     )
 }
 
@@ -117,7 +120,8 @@ fun ProvisioningContent(
     onPasswordChange: (String) -> Unit,
     onScanClick: () -> Unit,
     onGetWifiClick: () -> Unit,
-    onProvisionClick: () -> Unit
+    onProvisionClick: () -> Unit,
+    onOtaClick: () -> Unit = {}
 ) {
     Box(
         modifier = Modifier
@@ -194,6 +198,61 @@ fun ProvisioningContent(
             ProvisionButton(
                 enabled = ssid.isNotEmpty() && isDeviceReady,
                 onClick = onProvisionClick
+            )
+
+            // OTA 入口按钮
+            OtaEntryButton(
+                enabled = isDeviceReady,
+                onClick = onOtaClick
+            )
+        }
+    }
+}
+
+// ==================== OTA 入口按钮 ====================
+
+@Composable
+private fun OtaEntryButton(
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    val bgColor by animateColorAsState(
+        targetValue = if (enabled) Color(0xFF006A8E) else Color(0xFF1A2233),
+        animationSpec = tween(300),
+        label = "otaEntryBg"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            .then(if (!enabled) Modifier.alpha(0.5f) else Modifier),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = bgColor),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (enabled) 2.dp else 0.dp
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                Icons.Default.CloudUpload,
+                contentDescription = null,
+                tint = if (enabled) AccentCyan else SubtleGray,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "固件升级 (OTA)",
+                color = Color.White,
+                fontWeight = FontWeight.Medium,
+                fontSize = 14.sp
             )
         }
     }
@@ -535,8 +594,7 @@ private fun StyledTextField(
             unfocusedTextColor = Color.White,
             focusedBorderColor = AccentCyan,
             unfocusedBorderColor = Color(0xFF2A3A4A),
-            focusedContainerColor = CardBg,
-            unfocusedContainerColor = CardBg,
+            focusedLabelColor = AccentCyan,
             cursorColor = AccentCyan
         )
     )
@@ -557,44 +615,61 @@ private fun ProvisionButton(
             .height(52.dp),
         shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = AccentCyan,
+            containerColor = Color(0xFF006A8E),
             disabledContainerColor = Color(0xFF1A2233),
-            contentColor = DeepBlue,
-            disabledContentColor = SubtleGray.copy(alpha = 0.5f)
+            contentColor = Color.White
         )
     ) {
         Text(
-            "发送配置并配网",
+            "配网",
             fontWeight = FontWeight.Bold,
-            fontSize = 15.sp
+            fontSize = 16.sp
         )
     }
 }
 
 // ==================== 预览 ====================
 
-@Preview(showBackground = true, name = "配网界面预览")
+@Preview(showBackground = true, backgroundColor = 0xFF0D1B2A, device = "id:pixel_5")
 @Composable
-fun ProvisioningPreview() {
-    MaterialTheme {
-        ProvisioningContent(
-            status = "已连接到 ESP32",
-            aps = listOf(
-                WifiAp("Kluoke_5G", -45, 3),
-                WifiAp("Guest_WiFi", -70, 2),
-                WifiAp("Office_Network", -60, 3),
-                WifiAp("Weak_Signal", -82, 1)
-            ),
-            ssid = "Kluoke_5G",
-            password = "password123",
-            isScanning = false,
-            isDeviceReady = true,
-            connectionState = BleConnectionState.Connected("ESP32"),
-            onSsidChange = {},
-            onPasswordChange = {},
-            onScanClick = {},
-            onGetWifiClick = {},
-            onProvisionClick = {}
-        )
-    }
+private fun ProvisioningScreenConnectedPreview() {
+    ProvisioningContent(
+        status = "设备已连接，等待配网",
+        aps = listOf(
+            WifiAp("HomeWiFi_5G", -45, 3),
+            WifiAp("Office_Guest", -62, 0),
+            WifiAp("Neighbor_AP", -78, 3)
+        ),
+        ssid = "HomeWiFi_5G",
+        password = "mySecretPass",
+        isScanning = false,
+        isDeviceReady = true,
+        connectionState = BleConnectionState.Connected("ESP32_C5"),
+        onSsidChange = {},
+        onPasswordChange = {},
+        onScanClick = {},
+        onGetWifiClick = {},
+        onProvisionClick = {},
+        onOtaClick = {}
+    )
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0D1B2A, device = "id:pixel_5")
+@Composable
+private fun ProvisioningScreenScanningPreview() {
+    ProvisioningContent(
+        status = "正在扫描 BLE 设备...",
+        aps = emptyList(),
+        ssid = "",
+        password = "",
+        isScanning = true,
+        isDeviceReady = false,
+        connectionState = BleConnectionState.Scanning(""),
+        onSsidChange = {},
+        onPasswordChange = {},
+        onScanClick = {},
+        onGetWifiClick = {},
+        onProvisionClick = {},
+        onOtaClick = {}
+    )
 }

@@ -9,8 +9,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 
 /**
  * 主 Activity
@@ -18,23 +23,22 @@ import androidx.compose.ui.graphics.toArgb
  * 职责精简为：
  * 1. 启用 Edge-to-Edge 显示
  * 2. 权限请求
- * 3. 创建 ViewModel 并驱动 Compose UI
- *
- * 所有业务逻辑和 UI 状态由 ProvisioningViewModel 管理，
- * UI 渲染由 ProvisioningScreen 负责。
+ * 3. Compose Navigation 路由（配网 / OTA）
+ * 4. 创建 ViewModel 并驱动 Compose UI
  */
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: ProvisioningViewModel by viewModels()
+    private val provisioningViewModel: ProvisioningViewModel by viewModels()
+    private val otaViewModel: OtaViewModel by viewModels()
 
     // 专门用于扫描相关权限的启动器（成功后会触发扫描）
     private val blePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
         if (results.values.all { it }) {
-            viewModel.startScanAndConnect()
+            provisioningViewModel.startScanAndConnect()
         } else {
-            viewModel.updateStatus("部分权限未被允许，无法扫描设备")
+            provisioningViewModel.updateStatus("部分权限未被允许，无法扫描设备")
         }
     }
 
@@ -63,8 +67,11 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
-                ProvisioningScreen(
-                    viewModel = viewModel,
+                val navController = rememberNavController()
+                AppNavHost(
+                    navController = navController,
+                    provisioningViewModel = provisioningViewModel,
+                    otaViewModel = otaViewModel,
                     onScanClick = ::checkPermissionsAndScan
                 )
             }
@@ -75,7 +82,7 @@ class MainActivity : ComponentActivity() {
      * 检查权限并启动扫描
      */
     private fun checkPermissionsAndScan() {
-        viewModel.updateStatus("正在检查权限...")
+        provisioningViewModel.updateStatus("正在检查权限...")
         val request = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
         } else {
@@ -90,6 +97,36 @@ class MainActivity : ComponentActivity() {
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+        }
+    }
+}
+
+/**
+ * 导航图：配网页面 ↔ OTA 页面
+ */
+@Composable
+private fun AppNavHost(
+    navController: NavHostController,
+    provisioningViewModel: ProvisioningViewModel,
+    otaViewModel: OtaViewModel,
+    onScanClick: () -> Unit
+) {
+    NavHost(
+        navController = navController,
+        startDestination = "provisioning"
+    ) {
+        composable("provisioning") {
+            ProvisioningScreen(
+                viewModel = provisioningViewModel,
+                onScanClick = onScanClick,
+                onOtaClick = { navController.navigate("ota") }
+            )
+        }
+        composable("ota") {
+            OtaScreen(
+                viewModel = otaViewModel,
+                onBackClick = { navController.popBackStack() }
+            )
         }
     }
 }
