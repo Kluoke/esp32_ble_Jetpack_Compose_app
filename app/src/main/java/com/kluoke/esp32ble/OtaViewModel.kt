@@ -272,7 +272,7 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     // 等待本次写入完成回调，实现流控
-                    bleManager.writeCompletionFlow().collect { }
+                    bleManager.writeCompletionFlow.collect { }
                 }
 
                 // 所有数据发送完毕，发送 END 命令
