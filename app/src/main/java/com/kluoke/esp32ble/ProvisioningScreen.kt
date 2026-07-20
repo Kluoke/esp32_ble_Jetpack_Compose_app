@@ -63,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -625,4 +626,50 @@ private fun ProvisionButton(
             fontSize = 16.sp
         )
     }
+}
+
+// ==================== 预览 ====================
+
+@Preview(showBackground = true, backgroundColor = 0xFF0D1B2A, device = "id:pixel_5")
+@Composable
+private fun ProvisioningScreenConnectedPreview() {
+    ProvisioningContent(
+        status = "设备已连接，等待配网",
+        aps = listOf(
+            WifiAp("HomeWiFi_5G", -45, 3),
+            WifiAp("Office_Guest", -62, 0),
+            WifiAp("Neighbor_AP", -78, 3)
+        ),
+        ssid = "HomeWiFi_5G",
+        password = "mySecretPass",
+        isScanning = false,
+        isDeviceReady = true,
+        connectionState = BleConnectionState.Connected,
+        onSsidChange = {},
+        onPasswordChange = {},
+        onScanClick = {},
+        onGetWifiClick = {},
+        onProvisionClick = {},
+        onOtaClick = {}
+    )
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0D1B2A, device = "id:pixel_5")
+@Composable
+private fun ProvisioningScreenScanningPreview() {
+    ProvisioningContent(
+        status = "正在扫描 BLE 设备...",
+        aps = emptyList(),
+        ssid = "",
+        password = "",
+        isScanning = true,
+        isDeviceReady = false,
+        connectionState = BleConnectionState.Scanning,
+        onSsidChange = {},
+        onPasswordChange = {},
+        onScanClick = {},
+        onGetWifiClick = {},
+        onProvisionClick = {},
+        onOtaClick = {}
+    )
 }

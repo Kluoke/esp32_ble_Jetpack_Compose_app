@@ -47,8 +47,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -61,8 +63,6 @@ private val SuccessGreen = Color(0xFF00E676)
 private val ErrorRed = Color(0xFFFF5252)
 private val CardBg = Color(0xFF1E2D3D)
 private val SubtleGray = Color(0xFF8899AA)
-
-// ==================== 入口 ====================
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,6 +78,29 @@ fun OtaScreen(
         uri?.let { viewModel.selectFirmware(it) }
     }
 
+    OtaScreenContent(
+        uiState = uiState,
+        onBackClick = onBackClick,
+        onSelectFile = {
+            filePickerLauncher.launch(arrayOf("*/*"))
+        },
+        onStart = viewModel::startOta,
+        onAbort = viewModel::abortOta,
+        onReboot = viewModel::rebootDevice
+    )
+}
+
+// ==================== 纯 UI 主体 ====================
+
+@Composable
+fun OtaScreenContent(
+    uiState: OtaUiState,
+    onBackClick: () -> Unit,
+    onSelectFile: () -> Unit,
+    onStart: () -> Unit,
+    onAbort: () -> Unit,
+    onReboot: () -> Unit
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -162,12 +185,10 @@ fun OtaScreen(
             OtaActionButtons(
                 otaState = uiState.otaState,
                 hasFile = uiState.firmwareFileName != null,
-                onSelectFile = {
-                    filePickerLauncher.launch(arrayOf("*/*"))
-                },
-                onStart = viewModel::startOta,
-                onAbort = viewModel::abortOta,
-                onReboot = viewModel::rebootDevice
+                onSelectFile = onSelectFile,
+                onStart = onStart,
+                onAbort = onAbort,
+                onReboot = onReboot
             )
         }
     }
@@ -430,7 +451,7 @@ private fun OtaActionButtons(
 @Composable
 private fun OtaButton(
     text: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isPrimary: Boolean = false,
@@ -475,4 +496,63 @@ private fun OtaButton(
             )
         }
     }
+}
+
+// ==================== 预览 ====================
+
+@Preview(showBackground = true, backgroundColor = 0xFF0D1B2A, device = "id:pixel_5")
+@Composable
+private fun OtaScreenTransmittingPreview() {
+    OtaScreenContent(
+        uiState = OtaUiState(
+            statusText = "正在传输固件... 45%",
+            otaState = OtaState.Transmitting,
+            progress = 45,
+            firmwareFileName = "firmware_v2.1.0.bin",
+            firmwareSize = 1024 * 1024
+        ),
+        onBackClick = {},
+        onSelectFile = {},
+        onStart = {},
+        onAbort = {},
+        onReboot = {}
+    )
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0D1B2A, device = "id:pixel_5")
+@Composable
+private fun OtaScreenSuccessPreview() {
+    OtaScreenContent(
+        uiState = OtaUiState(
+            statusText = "升级成功，请重启设备",
+            otaState = OtaState.Success,
+            progress = 100,
+            firmwareFileName = "firmware_v2.1.0.bin",
+            firmwareSize = 1024 * 1024
+        ),
+        onBackClick = {},
+        onSelectFile = {},
+        onStart = {},
+        onAbort = {},
+        onReboot = {}
+    )
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0D1B2A, device = "id:pixel_5")
+@Composable
+private fun OtaScreenIdlePreview() {
+    OtaScreenContent(
+        uiState = OtaUiState(
+            statusText = "请选择固件文件",
+            otaState = OtaState.Idle,
+            progress = 0,
+            firmwareFileName = null,
+            firmwareSize = 0
+        ),
+        onBackClick = {},
+        onSelectFile = {},
+        onStart = {},
+        onAbort = {},
+        onReboot = {}
+    )
 }
