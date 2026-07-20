@@ -41,8 +41,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -286,7 +286,7 @@ private fun OtaProgressIndicator(
 
     Canvas(modifier = modifier) {
         val strokeWidth = 10.dp.toPx()
-        val arcSize = size - Stroke(width = strokeWidth)
+        val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
         val topLeft = Offset(strokeWidth / 2, strokeWidth / 2)
 
         // 底层轨道
