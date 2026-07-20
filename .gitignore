@@ -1,0 +1,32 @@
+# Build artifacts
+**/build/
+.gradle/
+.kotlin/
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Local configuration
+local.properties
+
+# Log and memory files
+*.log
+*.hprof
+
+# Output files
+*.apk
+*.aar
+/captures
+
+# External Native Build
+.externalNativeBuild/
+.cxx/
+
+# OS specific
+.DS_Store
+
+# Agent specific
+.artifacts/
