@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "365778397464",
+    "project_id": "kluoke-65a7f",
+    "storage_bucket": "kluoke-65a7f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:365778397464:android:71b9069d87e0cc5b4a166d",
+        "android_client_info": {
+          "package_name": "com.kluoke.esp32ble"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCTejzecYGSttQQRc3MGX1dxV6gi2Tw37w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
