@@ -1,12 +1,11 @@
 Exit code: 0
-Wall time: 1.2 seconds
+Wall time: 1.6 seconds
 Output:
 package com.kluoke.esp32ble
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/** Versioned application protocol shared by the Android client and ESP32 firmware. */
 object BleProtocol {
     const val VERSION: Byte = 1
     private const val MAGIC_0: Byte = 0xAA.toByte()
@@ -44,39 +43,63 @@ object BleProtocol {
     }
 
     fun encode(command: Byte, sequence: Int, payload: ByteArray = ByteArray(0), flags: Byte = 0): ByteArray {
+        require(sequence in 1..0xFFFF) { "sequence must be 1..65535" }
         require(payload.size <= MAX_PAYLOAD)
         val frame = ByteArray(HEADER_SIZE + payload.size + CRC_SIZE)
-        val buffer = ByteBuffer.wrap(frame).order(ByteOrder.LITTLE_ENDIAN)
-        buffer.put(MAGIC_0).put(MAGIC_1).put(VERSION).put(flags).put(command)
-        buffer.putShort(sequence.toShort()).putShort(payload.size.toShort()).put(payload)
-        buffer.putShort(crc16(frame, 0, HEADER_SIZE + payload.size).toShort())
+        ByteBuffer.wrap(frame).order(ByteOrder.LITTLE_ENDIAN).apply {
+            put(MAGIC_0).put(MAGIC_1).put(VERSION).put(flags).put(command)
+            putShort(sequence.toShort()).putShort(payload.size.toShort()).put(payload)
+            putShort(crc16(frame, 0, HEADER_SIZE + payload.size).toShort())
+        }
         return frame
     }
 
-    /** Incremental decoder: notification and write boundaries are not protocol boundaries. */
+    /** Thread-safe incremental frame decoder with an offset-based buffer. */
     class Decoder {
-        private val bytes = ArrayList<Byte>()
+        private var buffer = ByteArray(512)
+        private var start = 0
+        private var end = 0
 
+        @Synchronized
         fun append(chunk: ByteArray): List<Packet> {
-            bytes.addAll(chunk.toList())
+            ensureCapacity(chunk.size)
+            chunk.copyInto(buffer, end)
+            end += chunk.size
             val packets = mutableListOf<Packet>()
-            while (bytes.size >= HEADER_SIZE + CRC_SIZE) {
-                if (bytes[0] != MAGIC_0 || bytes[1] != MAGIC_1) { bytes.removeAt(0); continue }
-                if (bytes[2] != VERSION) { bytes.removeAt(0); continue }
-                val length = (bytes[7].toInt() and 0xFF) or ((bytes[8].toInt() and 0xFF) shl 8)
-                if (length > MAX_PAYLOAD) { bytes.removeAt(0); continue }
-                val frameSize = HEADER_SIZE + length + CRC_SIZE
-                if (bytes.size < frameSize) break
-                val frame = bytes.take(frameSize).toByteArray()
-                val actualCrc = (frame[frameSize - 2].toInt() and 0xFF) or
-                    ((frame[frameSize - 1].toInt() and 0xFF) shl 8)
-                if (crc16(frame, 0, frameSize - CRC_SIZE) == actualCrc) {
-                    val sequence = (frame[5].toInt() and 0xFF) or ((frame[6].toInt() and 0xFF) shl 8)
-                    packets += Packet(frame[3], frame[4], sequence, frame.copyOfRange(HEADER_SIZE, HEADER_SIZE + length))
+            while (end - start >= HEADER_SIZE + CRC_SIZE) {
+                if (buffer[start] != MAGIC_0 || buffer[start + 1] != MAGIC_1 || buffer[start + 2] != VERSION) {
+                    start++
+                    continue
                 }
-                repeat(frameSize) { bytes.removeAt(0) }
+                val length = (buffer[start + 7].toInt() and 0xFF) or ((buffer[start + 8].toInt() and 0xFF) shl 8)
+                if (length > MAX_PAYLOAD) { start++; continue }
+                val frameSize = HEADER_SIZE + length + CRC_SIZE
+                if (end - start < frameSize) break
+                val actualCrc = (buffer[start + frameSize - 2].toInt() and 0xFF) or
+                    ((buffer[start + frameSize - 1].toInt() and 0xFF) shl 8)
+                if (crc16(buffer, start, frameSize - CRC_SIZE) == actualCrc) {
+                    val sequence = (buffer[start + 5].toInt() and 0xFF) or ((buffer[start + 6].toInt() and 0xFF) shl 8)
+                    packets += Packet(buffer[start + 3], buffer[start + 4], sequence,
+                        buffer.copyOfRange(start + HEADER_SIZE, start + HEADER_SIZE + length))
+                }
+                start += frameSize
             }
+            compact()
             return packets
+        }
+
+        private fun ensureCapacity(incoming: Int) {
+            if (buffer.size - end >= incoming) return
+            compact()
+            if (buffer.size - end >= incoming) return
+            buffer = buffer.copyOf((end + incoming).coerceAtMost(HEADER_SIZE + MAX_PAYLOAD + CRC_SIZE).coerceAtLeast(buffer.size * 2))
+        }
+
+        private fun compact() {
+            if (start == 0) return
+            if (start < end) buffer.copyInto(buffer, 0, start, end)
+            end -= start
+            start = 0
         }
     }
 
