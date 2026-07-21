@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 1.3 seconds
+Output:
 package com.kluoke.esp32ble
 
 import android.app.Application
@@ -9,14 +12,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import java.io.BufferedInputStream
 
 /**
- * OTA 升级 UI 状态
+ * OTA 鍗囩骇 UI 鐘舵€?
  */
 data class OtaUiState(
-    val statusText: String = "请选择固件文件",
+    val statusText: String = "璇烽€夋嫨鍥轰欢鏂囦欢",
     val otaState: OtaState = OtaState.Idle,
     val progress: Int = 0,
     val firmwareFileName: String? = null,
@@ -24,13 +29,13 @@ data class OtaUiState(
 )
 
 /**
- * OTA 升级 ViewModel
+ * OTA 鍗囩骇 ViewModel
  *
- * 负责：
- * - 固件文件选择与读取
- * - OTA 状态机驱动（BEGIN → 传输 → END → 重启）
- * - MTU 感知的分块传输与流控
- * - 进度追踪（设备端进度优先，本地回退）
+ * 璐熻矗锛?
+ * - 鍥轰欢鏂囦欢閫夋嫨涓庤鍙?
+ * - OTA 鐘舵€佹満椹卞姩锛圔EGIN 鈫?浼犺緭 鈫?END 鈫?閲嶅惎锛?
+ * - MTU 鎰熺煡鐨勫垎鍧椾紶杈撲笌娴佹帶
+ * - 杩涘害杩借釜锛堣澶囩杩涘害浼樺厛锛屾湰鍦板洖閫€锛?
  */
 class OtaViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -46,18 +51,18 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
     private var otaJob: Job? = null
 
     init {
-        // 收集 OTA 状态通知（来自 ESP32 0xFF0B 特征）
+        // 鏀堕泦 OTA 鐘舵€侀€氱煡锛堟潵鑷?ESP32 0xFF0B 鐗瑰緛锛?
         viewModelScope.launch {
             bleManager.otaStatusFlow().collect { status ->
                 when (status.state) {
                     OtaState.Receiving -> {
-                        // 设备报告正在接收，用设备端进度更新 UI
+                        // 璁惧鎶ュ憡姝ｅ湪鎺ユ敹锛岀敤璁惧绔繘搴︽洿鏂?UI
                         _uiState.value = _uiState.value.copy(
                             otaState = OtaState.Transmitting,
                             progress = status.progress,
-                            statusText = "正在传输固件... ${status.progress}%"
+                            statusText = "姝ｅ湪浼犺緭鍥轰欢... ${status.progress}%"
                         )
-                        // 首次收到 receiving 状态时启动分块传输
+                        // 棣栨鏀跺埌 receiving 鐘舵€佹椂鍚姩鍒嗗潡浼犺緭
                         if (!isSending) {
                             startSendingChunks()
                         }
@@ -65,20 +70,20 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
                     OtaState.Validating -> {
                         _uiState.value = _uiState.value.copy(
                             otaState = OtaState.Validating,
-                            statusText = "正在验证固件..."
+                            statusText = "姝ｅ湪楠岃瘉鍥轰欢..."
                         )
                     }
                     OtaState.Updating -> {
                         _uiState.value = _uiState.value.copy(
                             otaState = OtaState.Updating,
-                            statusText = "正在写入启动分区..."
+                            statusText = "姝ｅ湪鍐欏叆鍚姩鍒嗗尯..."
                         )
                     }
                     OtaState.Success -> {
                         _uiState.value = _uiState.value.copy(
                             otaState = OtaState.Success,
                             progress = 100,
-                            statusText = "固件升级成功，请重启设备"
+                            statusText = "鍥轰欢鍗囩骇鎴愬姛锛岃閲嶅惎璁惧"
                         )
                         cleanup()
                     }
@@ -86,7 +91,7 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
                         if (isSending) {
                             _uiState.value = _uiState.value.copy(
                                 otaState = OtaState.Error,
-                                statusText = "设备报告升级失败"
+                                statusText = "璁惧鎶ュ憡鍗囩骇澶辫触"
                             )
                             cleanup()
                         }
@@ -95,22 +100,22 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
                         if (_uiState.value.otaState != OtaState.Idle) {
                             _uiState.value = _uiState.value.copy(
                                 otaState = OtaState.Idle,
-                                statusText = "OTA 已重置，请重新开始"
+                                statusText = "OTA 宸查噸缃紝璇烽噸鏂板紑濮?
                             )
                         }
                     }
-                    else -> { /* Beginning, Transmitting, Ending 由本地驱动 */ }
+                    else -> { /* Beginning, Transmitting, Ending 鐢辨湰鍦伴┍鍔?*/ }
                 }
             }
         }
 
-        // 监听 BLE 断连
+        // 鐩戝惉 BLE 鏂繛
         viewModelScope.launch {
             bleManager.connectionState.collect { state ->
                 if (state is BleConnectionState.Disconnected && isSending) {
                     _uiState.value = _uiState.value.copy(
                         otaState = OtaState.Error,
-                        statusText = "BLE 连接断开，传输中止"
+                        statusText = "BLE 杩炴帴鏂紑锛屼紶杈撲腑姝?
                     )
                     cleanup()
                 }
@@ -118,16 +123,16 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ==================== 用户操作 ====================
+    // ==================== 鐢ㄦ埛鎿嶄綔 ====================
 
     /**
-     * 选择固件文件
+     * 閫夋嫨鍥轰欢鏂囦欢
      */
     fun selectFirmware(uri: Uri) {
         viewModelScope.launch {
             try {
                 val context = getApplication<Application>()
-                // 持久化 URI 读取权限
+                // 鎸佷箙鍖?URI 璇诲彇鏉冮檺
                 context.contentResolver.takePersistableUriPermission(
                     uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
@@ -138,22 +143,22 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = _uiState.value.copy(
                     firmwareFileName = fileName,
                     firmwareSize = size,
-                    statusText = "已选择: $fileName (${formatFileSize(size)})",
+                    statusText = "宸查€夋嫨: $fileName (${formatFileSize(size)})",
                     otaState = OtaState.Idle,
                     progress = 0
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
-                    statusText = "文件读取失败: ${e.message}"
+                    statusText = "鏂囦欢璇诲彇澶辫触: ${e.message}"
                 )
             }
         }
     }
 
     /**
-     * 开始 OTA 升级
+     * 寮€濮?OTA 鍗囩骇
      *
-     * 流程：打开文件 → 发送 BEGIN,{size} → 等待设备 Ready → 分块传输 → 发送 END
+     * 娴佺▼锛氭墦寮€鏂囦欢 鈫?鍙戦€?BEGIN,{size} 鈫?绛夊緟璁惧 Ready 鈫?鍒嗗潡浼犺緭 鈫?鍙戦€?END
      */
     fun startOta() {
         val state = _uiState.value
@@ -165,30 +170,30 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 _uiState.value = _uiState.value.copy(
                     otaState = OtaState.Beginning,
-                    statusText = "正在准备 OTA..."
+                    statusText = "姝ｅ湪鍑嗗 OTA..."
                 )
 
-                // 打开文件流供分块读取
+                // 鎵撳紑鏂囦欢娴佷緵鍒嗗潡璇诲彇
                 val inputStream = getApplication<Application>()
                     .contentResolver.openInputStream(uri) ?: run {
                     _uiState.value = _uiState.value.copy(
                         otaState = OtaState.Error,
-                        statusText = "无法打开固件文件"
+                        statusText = "鏃犳硶鎵撳紑鍥轰欢鏂囦欢"
                     )
                     return@launch
                 }
                 firmwareStream = inputStream.buffered()
                 totalBytesSent = 0L
 
-                // 发送 BEGIN 命令通知设备准备接收
+                // 鍙戦€?BEGIN 鍛戒护閫氱煡璁惧鍑嗗鎺ユ敹
                 bleManager.sendOtaCommand("BEGIN,${state.firmwareSize}")
 
-                // 等待设备通过 0xFF0B 通知回复 receiving 状态后启动传输
-                // 首次收到 receiving 时由 otaStatusFlow 的收集器触发 startSendingChunks()
+                // 绛夊緟璁惧閫氳繃 0xFF0B 閫氱煡鍥炲 receiving 鐘舵€佸悗鍚姩浼犺緭
+                // 棣栨鏀跺埌 receiving 鏃剁敱 otaStatusFlow 鐨勬敹闆嗗櫒瑙﹀彂 startSendingChunks()
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     otaState = OtaState.Error,
-                    statusText = "OTA 启动失败: ${e.message}"
+                    statusText = "OTA 鍚姩澶辫触: ${e.message}"
                 )
                 cleanup()
             }
@@ -196,7 +201,7 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 中止 OTA 升级
+     * 涓 OTA 鍗囩骇
      */
     fun abortOta() {
         otaJob?.cancel()
@@ -206,39 +211,39 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(
                 otaState = OtaState.Idle,
                 progress = 0,
-                statusText = "OTA 已中止"
+                statusText = "OTA 宸蹭腑姝?
             )
         }
     }
 
     /**
-     * 重启设备
+     * 閲嶅惎璁惧
      */
     fun rebootDevice() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
-                statusText = "正在重启设备..."
+                statusText = "姝ｅ湪閲嶅惎璁惧..."
             )
             bleManager.sendOtaCommand("REBOOT")
         }
     }
 
     /**
-     * 查询设备 OTA 状态
+     * 鏌ヨ璁惧 OTA 鐘舵€?
      */
     fun queryStatus() {
         bleManager.queryOtaStatus()
     }
 
-    // ==================== 内部实现 ====================
+    // ==================== 鍐呴儴瀹炵幇 ====================
 
     /**
-     * 启动分块传输协程
+     * 鍚姩鍒嗗潡浼犺緭鍗忕▼
      *
-     * 由 otaStatusFlow 首次收到 Receiving 状态时触发。
-     * 通过 [BleProvisioningManager.writeCompletionFlow] 实现流控：
-     * 每写入一块后等待 onCharacteristicWrite 回调，再写入下一块，
-     * 避免 BLE 栈缓冲区溢出。
+     * 鐢?otaStatusFlow 棣栨鏀跺埌 Receiving 鐘舵€佹椂瑙﹀彂銆?
+     * 閫氳繃 [BleProvisioningManager.writeCompletionFlow] 瀹炵幇娴佹帶锛?
+     * 姣忓啓鍏ヤ竴鍧楀悗绛夊緟 onCharacteristicWrite 鍥炶皟锛屽啀鍐欏叆涓嬩竴鍧楋紝
+     * 閬垮厤 BLE 鏍堢紦鍐插尯婧㈠嚭銆?
      */
     fun startSendingChunks() {
         if (isSending) return
@@ -262,31 +267,31 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
                     bleManager.sendOtaData(chunk)
                     totalBytesSent += read
 
-                    // 本地进度计算（设备端进度通过 otaStatusFlow 覆盖）
+                    // 鏈湴杩涘害璁＄畻锛堣澶囩杩涘害閫氳繃 otaStatusFlow 瑕嗙洊锛?
                     val localProgress = ((totalBytesSent * 100) / totalSize).toInt().coerceIn(0, 100)
                     if (_uiState.value.otaState == OtaState.Transmitting) {
                         _uiState.value = _uiState.value.copy(
                             progress = localProgress,
-                            statusText = "正在传输固件... $localProgress%"
+                            statusText = "姝ｅ湪浼犺緭鍥轰欢... $localProgress%"
                         )
                     }
 
-                    // 等待本次写入完成回调，实现流控
-                    bleManager.writeCompletionFlow.collect { }
+                    // 绛夊緟鏈鍐欏叆瀹屾垚鍥炶皟锛屽疄鐜版祦鎺?
+                    withTimeout(10_000) { bleManager.writeCompletionFlow.first() }
                 }
 
-                // 所有数据发送完毕，发送 END 命令
+                // 鎵€鏈夋暟鎹彂閫佸畬姣曪紝鍙戦€?END 鍛戒护
                 bleManager.sendOtaCommand("END")
                 _uiState.value = _uiState.value.copy(
                     otaState = OtaState.Ending,
-                    statusText = "数据传输完成，等待设备验证..."
+                    statusText = "鏁版嵁浼犺緭瀹屾垚锛岀瓑寰呰澶囬獙璇?.."
                 )
             } catch (e: CancellationException) {
-                // 协程被取消（用户中止），不处理
+                // 鍗忕▼琚彇娑堬紙鐢ㄦ埛涓锛夛紝涓嶅鐞?
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     otaState = OtaState.Error,
-                    statusText = "传输失败: ${e.message}"
+                    statusText = "浼犺緭澶辫触: ${e.message}"
                 )
                 cleanup()
             }
@@ -317,3 +322,4 @@ class OtaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 }
+
